@@ -29,6 +29,8 @@ const els = {
   taskForm: $("#taskForm"),
   taskInput: $("#taskInput"),
   taskMinutes: $("#taskMinutes"),
+  importPlan: $("#importPlanBtn"),
+  planFile: $("#planFileInput"),
   focusLength: $("#focusLength"),
   breakLength: $("#breakLength"),
   strictnessNote: $("#strictnessNote"),
@@ -44,12 +46,17 @@ const els = {
   interventionText: $("#interventionText"),
   resume: $("#resumeBtn"),
   modalFalsePositive: $("#modalFalsePositiveBtn"),
+  importReaction: $("#importReactionBtn"),
+  reactionFile: $("#reactionFileInput"),
+  reactionToast: $("#reactionToast"),
+  reactionImage: $("#reactionImage"),
+  reactionText: $("#reactionText"),
 };
 
 const strictnessProfiles = {
   gentle: { phone: 8, away: 60, note: "手机持续 8 秒或离席 60 秒后提醒。" },
   standard: { phone: 5, away: 30, note: "手机持续 5 秒或离席 30 秒后提醒。" },
-  strict: { phone: 3, away: 15, note: "手机持续 3 秒或离席 15 秒后提醒。" },
+  strict: { phone: 2, away: 10, note: "衡水模式：手机持续 2 秒或离席 10 秒即纠偏，重复触发会增加补偿专注。" },
 };
 
 const state = {
@@ -66,6 +73,7 @@ const state = {
   cameraMode: "computer",
   scenario: "exam",
   reminderStyle: "coach",
+  importedPlan: false,
   issue: null,
   issueSince: 0,
   issueLevel: 0,
@@ -73,6 +81,11 @@ const state = {
   presenceOverrideUntil: 0,
   lastPersonSeenAt: 0,
   lastPhoneSeenAt: 0,
+  lastMotionSample: null,
+  motionState: "unknown",
+  lastMicroLogAt: 0,
+  laptopVisible: false,
+  reactionImageUrl: null,
   studyReferences: [],
   referenceSimilarity: null,
   lastDetectionAt: 0,
@@ -102,6 +115,10 @@ function currentTask() {
   return state.tasks.find((task) => !task.done);
 }
 
+function focusDurationMinutes() {
+  return state.importedPlan && currentTask() ? currentTask().minutes : Number(els.focusLength.value);
+}
+
 function renderTasks() {
   const active = currentTask();
   els.taskList.innerHTML = "";
@@ -119,11 +136,18 @@ function renderTasks() {
       </div>
       <button class="remove-task" title="删除任务" aria-label="删除任务">×</button>`;
     row.querySelector(".task-check").addEventListener("change", (event) => {
+      const wasCurrent = active?.id === task.id;
       task.done = event.target.checked;
       saveTasks();
       renderTasks();
       updateActiveTask();
       addLog(task.done ? `完成任务：${task.title}` : `恢复任务：${task.title}`);
+      if (task.done && wasCurrent && state.running && state.phase === "focus" && state.importedPlan) {
+        switchPhase();
+      } else if (task.done && wasCurrent && !state.running && state.importedPlan && currentTask()) {
+        state.remainingSeconds = focusDurationMinutes() * 60;
+        renderTimer();
+      }
     });
     row.querySelector(".remove-task").addEventListener("click", () => {
       state.tasks = state.tasks.filter((item) => item.id !== task.id);
@@ -226,8 +250,29 @@ const scenarioPlans = {
 const reminderStyles = {
   coach: { note: "短句提醒下一步行动，适合长时间学习。", voice: true },
   challenge: { note: "把纠偏变成一次 60 秒重启挑战，完成后继续。", voice: true },
+  xiaoyan: { note: "原创的晓燕式幽默鼓励；非官方内容，不使用未经授权的真人素材。", voice: true },
   quiet: { note: "只显示轻量提示，不主动朗读。", voice: false },
 };
+
+const xiaoyanLines = [
+  "同学，先别和手机培养感情，把眼前这一小步做完。",
+  "题目不会自己写完，但你现在动笔就已经赢回来一分钟。",
+  "不用突然变优秀，先把手机放下，再做一道题。",
+  "咱不演努力，做出一个能检查的结果再休息。",
+];
+
+function showReaction(message) {
+  els.reactionText.textContent = message;
+  if (state.reactionImageUrl) {
+    els.reactionImage.src = state.reactionImageUrl;
+    els.reactionImage.hidden = false;
+  } else {
+    els.reactionImage.hidden = true;
+  }
+  els.reactionToast.hidden = false;
+  clearTimeout(showReaction.timer);
+  showReaction.timer = setTimeout(() => { els.reactionToast.hidden = true; }, 6500);
+}
 
 function planForScenario() {
   const plan = scenarioPlans[state.scenario];
@@ -239,10 +284,57 @@ function planForScenario() {
     minutes: Math.max(10, Math.round(minutes * scale / 5) * 5),
     done: false,
   }));
+  state.importedPlan = false;
   saveTasks();
   renderTasks();
   addLog(`生成${plan.label}场景任务`);
   setAlert("calm", `${plan.label}场景已准备`, "先完成当前任务的最小可交付结果");
+}
+
+function normalizeImportedTask(item, index) {
+  if (typeof item === "string") return { title: item.trim(), minutes: 25 };
+  if (!item || typeof item !== "object") return null;
+  const title = String(item.title || item.task || item.name || "").trim();
+  const minutes = Number(item.minutes || item.duration || item.time || 25);
+  if (!title) return null;
+  return { title, minutes: Math.min(180, Math.max(5, Number.isFinite(minutes) ? minutes : 25)), order: index };
+}
+
+function parsePlanText(text, filename) {
+  if (filename.toLowerCase().endsWith(".json")) {
+    const parsed = JSON.parse(text);
+    const items = Array.isArray(parsed) ? parsed : parsed.tasks;
+    if (!Array.isArray(items)) throw new Error("JSON 需要是任务数组，或包含 tasks 数组");
+    return items.map(normalizeImportedTask).filter(Boolean);
+  }
+  return text.split(/\r?\n/).map((line, index) => {
+    const cleaned = line
+      .replace(/^\s*[-*]\s+/, "")
+      .replace(/^\s*\d+[.)、]\s*/, "")
+      .replace(/^\s*\[[ xX]\]\s*/, "")
+      .trim();
+    if (!cleaned || /^(title|task|任务)([,\t|]|$)/i.test(cleaned)) return null;
+    const parts = cleaned.split(/[,\t|]/).map((part) => part.trim()).filter(Boolean);
+    const maybeMinutes = Number(parts.at(-1)?.replace(/分钟|min(ute)?s?/i, "").trim());
+    const hasMinutes = Number.isFinite(maybeMinutes) && maybeMinutes > 0;
+    return normalizeImportedTask({
+      title: hasMinutes ? parts.slice(0, -1).join(" ") : cleaned,
+      minutes: hasMinutes ? maybeMinutes : 25,
+    }, index);
+  }).filter(Boolean);
+}
+
+async function importPlanFile(file) {
+  const tasks = parsePlanText(await file.text(), file.name);
+  if (!tasks.length) throw new Error("没有找到可导入的任务");
+  state.tasks = tasks.map((task) => ({ id: crypto.randomUUID(), title: task.title, minutes: task.minutes, done: false }));
+  state.importedPlan = true;
+  state.remainingSeconds = focusDurationMinutes() * 60;
+  saveTasks();
+  renderTasks();
+  renderTimer();
+  addLog(`导入学习计划：${file.name}，共 ${tasks.length} 项`);
+  setAlert("calm", "计划已安排", `将按顺序执行 ${tasks.length} 项任务，完成一项后进入休息`);
 }
 
 async function initDetector() {
@@ -280,12 +372,16 @@ async function startSession() {
     state.running = true;
     state.paused = false;
     state.phase = "focus";
-    state.remainingSeconds = Number(els.focusLength.value) * 60 + state.penaltyMinutes * 60;
+    state.remainingSeconds = focusDurationMinutes() * 60 + state.penaltyMinutes * 60;
     state.lastTimerAt = performance.now();
     state.ignoreUntil = performance.now() + 8000;
     state.presenceOverrideUntil = 0;
     state.lastPersonSeenAt = 0;
     state.lastPhoneSeenAt = 0;
+    state.lastMotionSample = null;
+    state.motionState = "unknown";
+    state.lastMicroLogAt = 0;
+    state.laptopVisible = false;
     els.phase.textContent = "专注阶段";
     els.start.textContent = "监督中";
     els.pause.disabled = false;
@@ -293,7 +389,7 @@ async function startSession() {
     els.calibrate.classList.remove("hidden");
     setCameraState("idle", "识别中");
     setAlert("calm", "状态正常", "请开始当前任务");
-    addLog(`开始 ${els.focusLength.value} 分钟专注`);
+    addLog(`开始 ${focusDurationMinutes()} 分钟专注`);
     renderTasks();
     requestAnimationFrame(loop);
   } catch (error) {
@@ -407,6 +503,34 @@ function compareWithStudyReference() {
   }));
 }
 
+function trackMicroActions(now, laptop) {
+  const current = sampleCurrentFrame();
+  if (!current) return;
+  if (state.lastMotionSample) {
+    let difference = 0;
+    for (let index = 0; index < current.length; index += 1) {
+      difference += Math.abs(current[index] - state.lastMotionSample[index]);
+    }
+    const motion = difference / current.length / 255;
+    const nextState = motion > 0.055 ? "active" : motion < 0.012 ? "still" : "steady";
+    if (nextState !== state.motionState && now - state.lastMicroLogAt > 12000) {
+      const messages = {
+        active: "检测到画面动作：疑似书写、翻页或调整姿势",
+        still: "画面趋于静止：建议确认是否仍在推进任务",
+        steady: "桌面动作恢复平稳",
+      };
+      addLog(messages[nextState]);
+      state.motionState = nextState;
+      state.lastMicroLogAt = now;
+    }
+  }
+  state.lastMotionSample = current;
+  if (laptop !== state.laptopVisible) {
+    state.laptopVisible = laptop;
+    addLog(laptop ? "电脑进入画面：具体用途无法由摄像头判断" : "电脑离开画面");
+  }
+}
+
 async function calibrateStudyFrame() {
   if (!sampleCurrentFrame()) {
     setAlert("warning", "暂时无法校准", "等待摄像头画面稳定后再试一次");
@@ -474,6 +598,7 @@ function evaluateDetections(detections, now) {
   if (phoneDetected) state.lastPhoneSeenAt = now;
   const phone = phoneDetected || (state.lastPhoneSeenAt > 0 && now - state.lastPhoneSeenAt < 2200);
   const laptop = categories.some((item) => item.categoryName === "laptop" && item.score >= 0.2);
+  trackMicroActions(now, laptop);
   const personDetected = categories.some((item) => item.categoryName === "person" && item.score >= 0.2);
   if (personDetected) state.lastPersonSeenAt = now;
   state.referenceSimilarity = compareWithStudyReference();
@@ -528,7 +653,9 @@ function updateIssue(type, now) {
 function intervene(level, type) {
   state.issueLevel = level;
   state.warnings += 1;
-  const additions = { 1: 0, 2: 2, 3: 5 };
+  const additions = state.strictness === "strict"
+    ? { 1: 2, 2: 5, 3: 10 }
+    : { 1: 0, 2: 2, 3: 5 };
   const added = additions[level];
   if (added) {
     state.penaltyMinutes += added;
@@ -537,15 +664,18 @@ function intervene(level, type) {
   const action = type === "phone" ? "把手机放回视线外" : "回到座位继续当前任务";
   const styleMessage = state.reminderStyle === "challenge"
     ? "完成一次 60 秒重启：放下干扰，做出下一步动作。"
-    : state.reminderStyle === "quiet"
-      ? "已记录这次分心，请在方便时回到当前任务。"
-      : "先做一个最小动作：放下干扰，继续当前任务。";
+    : state.reminderStyle === "xiaoyan"
+      ? xiaoyanLines[(state.warnings - 1) % xiaoyanLines.length]
+      : state.reminderStyle === "quiet"
+        ? "已记录这次分心，请在方便时回到当前任务。"
+        : "先做一个最小动作：放下干扰，继续当前任务。";
   els.interventionLevel.textContent = `第 ${level} 级纠偏`;
   els.interventionTitle.textContent = action;
   els.interventionText.textContent = added
     ? `${styleMessage}本轮增加 ${added} 分钟补偿专注时间。`
     : styleMessage;
   els.intervention.hidden = false;
+  if (state.reminderStyle === "xiaoyan") showReaction(styleMessage);
   if (state.reminderStyle !== "quiet") speak(level === 1 ? `${action}。${styleMessage}` : `${action}。本轮增加${added}分钟补偿专注时间。`);
   addLog(`${level} 级纠偏${added ? `，增加 ${added} 分钟补偿` : ""}`);
   renderTimer();
@@ -597,7 +727,7 @@ function switchPhase() {
     addLog("完成专注，进入休息");
   } else {
     state.phase = "focus";
-    state.remainingSeconds = Number(els.focusLength.value) * 60;
+    state.remainingSeconds = focusDurationMinutes() * 60;
     state.ignoreUntil = performance.now() + 8000;
     state.presenceOverrideUntil = 0;
     state.lastPersonSeenAt = 0;
@@ -634,6 +764,32 @@ els.resume.addEventListener("click", () => {
   addLog("确认已调整，继续学习");
 });
 els.autoPlan.addEventListener("click", autoPlan);
+els.importPlan.addEventListener("click", () => els.planFile.click());
+els.planFile.addEventListener("change", async () => {
+  const file = els.planFile.files?.[0];
+  if (!file) return;
+  try {
+    await importPlanFile(file);
+  } catch (error) {
+    setAlert("alert", "计划导入失败", error.message || "请检查文件格式");
+  } finally {
+    els.planFile.value = "";
+  }
+});
+els.importReaction.addEventListener("click", () => els.reactionFile.click());
+els.reactionFile.addEventListener("change", () => {
+  const file = els.reactionFile.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) {
+    setAlert("alert", "表情包无法使用", "请选择不超过 10 MB 的 GIF、PNG、JPG 或 WebP");
+    return;
+  }
+  if (state.reactionImageUrl) URL.revokeObjectURL(state.reactionImageUrl);
+  state.reactionImageUrl = URL.createObjectURL(file);
+  els.importReaction.textContent = "已选择，可更换";
+  showReaction("自定义提醒表情已就绪，仅在当前页面使用。");
+  addLog(`载入本地提醒表情：${file.name}`);
+});
 els.taskForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const title = els.taskInput.value.trim();
@@ -662,6 +818,14 @@ $$('[data-strictness]').forEach((button) => button.addEventListener("click", () 
   state.strictness = button.dataset.strictness;
   $$('[data-strictness]').forEach((item) => item.classList.toggle("active", item === button));
   els.strictnessNote.textContent = strictnessProfiles[state.strictness].note;
+  if (state.strictness === "strict") {
+    state.reminderStyle = "challenge";
+    $$('[data-reminder-style]').forEach((item) => item.classList.toggle("active", item.dataset.reminderStyle === "challenge"));
+    els.reminderStyleNote.textContent = reminderStyles.challenge.note;
+    els.voiceToggle.checked = true;
+    addLog("启用衡水模式：挑战式语音提醒与逐级补偿");
+    setAlert("warning", "衡水模式已启用", "纪律从下一次分心开始，但不会牺牲休息和健康");
+  }
 }));
 
 $$('[data-camera-mode]').forEach((button) => button.addEventListener("click", () => {
@@ -689,7 +853,8 @@ $$('[data-reminder-style]').forEach((button) => button.addEventListener("click",
   $$('[data-reminder-style]').forEach((item) => item.classList.toggle("active", item === button));
   const profile = reminderStyles[state.reminderStyle];
   els.reminderStyleNote.textContent = profile.note;
-  if (state.reminderStyle === "quiet") els.voiceToggle.checked = false;
+  els.voiceToggle.checked = profile.voice;
+  if (state.reminderStyle === "xiaoyan") showReaction(xiaoyanLines[0]);
   addLog(`提醒风格：${button.textContent}`);
 }));
 

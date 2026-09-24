@@ -49,6 +49,10 @@
             </div>
             <button id="falsePositiveBtn" class="false-positive hidden">这是误判</button>
             <button id="calibrateBtn" class="calibrate-btn hidden">以当前画面校准</button>
+            <div id="reactionToast" class="reaction-toast" hidden>
+              <img id="reactionImage" alt="自定义提醒表情" hidden />
+              <strong id="reactionText"></strong>
+            </div>
           </div>
 
           <div id="alertBand" class="alert-band calm" role="status" aria-live="assertive">
@@ -80,7 +84,11 @@
                 <h2>今天做什么</h2>
                 <p>按顺序完成，当前任务会自动置顶。</p>
               </div>
-              <button id="autoPlanBtn" class="secondary-btn">智能安排</button>
+              <div class="heading-actions">
+                <button id="importPlanBtn" class="secondary-btn">导入计划</button>
+                <button id="autoPlanBtn" class="secondary-btn">智能安排</button>
+                <input id="planFileInput" type="file" accept=".txt,.md,.csv,.json,text/plain,text/csv,application/json" hidden />
+              </div>
             </div>
             <div class="scenario-picker" aria-label="学习工作场景">
               <span class="picker-label">场景</span>
@@ -128,7 +136,7 @@
               <div class="segmented">
                 <button type="button" data-strictness="gentle">宽松</button>
                 <button type="button" data-strictness="standard" class="active">标准</button>
-                <button type="button" data-strictness="strict">严格</button>
+                <button type="button" data-strictness="strict">衡水模式</button>
               </div>
               <p id="strictnessNote">手机持续 5 秒或离席 30 秒后提醒。</p>
             </fieldset>
@@ -142,20 +150,26 @@
             </label>
             <fieldset class="strictness-field">
               <legend>提醒风格</legend>
-              <div class="segmented">
+              <div class="segmented reminder-segmented">
                 <button type="button" data-reminder-style="coach" class="active">教练式</button>
                 <button type="button" data-reminder-style="challenge">挑战式</button>
+                <button type="button" data-reminder-style="xiaoyan">晓燕式</button>
                 <button type="button" data-reminder-style="quiet">安静式</button>
               </div>
               <p id="reminderStyleNote">短句提醒下一步行动，适合长时间学习。</p>
             </fieldset>
+            <div class="setting-row">
+              <span><strong>自定义提醒动图</strong><small>仅从本机读取，不上传</small></span>
+              <button id="importReactionBtn" type="button" class="secondary-btn">选择 GIF</button>
+              <input id="reactionFileInput" type="file" accept="image/gif,image/png,image/jpeg,image/webp" hidden />
+            </div>
           </div>
 
           <div id="logPanel" class="tab-panel" role="tabpanel" hidden>
             <div class="panel-heading">
               <div>
                 <h2>本轮记录</h2>
-                <p>只保存在浏览器本地，不包含照片或视频。</p>
+                <p>记录视觉推测的小动作，只保存在当前页面，不包含照片或视频。</p>
               </div>
             </div>
             <div id="eventLog" class="event-log">
@@ -183,6 +197,6 @@
       </div>
     </div>
 
-    <script type="module" src="./app.js?v=9"></script>
+    <script type="module" src="./app.js?v=11"></script>
   </body>
 </html>
