@@ -306,6 +306,11 @@ main { padding: 24px clamp(16px, 4vw, 56px) 40px; }
 .toggle-row small { color: var(--muted); }
 .setting-row > span { display: flex; flex-direction: column; gap: 4px; }
 .setting-row small { color: var(--muted); }
+.reaction-sources { padding: 14px 0 2px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.reaction-sources > span { color: var(--muted); font-weight: 700; }
+.reaction-sources a { color: var(--blue); text-decoration: none; border-bottom: 1px solid rgba(34,94,138,.28); }
+.reaction-sources a:hover { border-bottom-color: var(--blue); }
+.reaction-sources small { flex-basis: 100%; color: var(--muted); line-height: 1.5; }
 .toggle-row input { width: 20px; height: 20px; accent-color: var(--green); }
 
 .event-log { display: flex; flex-direction: column; gap: 0; }

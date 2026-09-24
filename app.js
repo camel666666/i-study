@@ -250,7 +250,7 @@ const scenarioPlans = {
 const reminderStyles = {
   coach: { note: "短句提醒下一步行动，适合长时间学习。", voice: true },
   challenge: { note: "把纠偏变成一次 60 秒重启挑战，完成后继续。", voice: true },
-  xiaoyan: { note: "原创的晓燕式幽默鼓励；非官方内容，不使用未经授权的真人素材。", voice: true },
+  xiaoyan: { note: "原创的晓艳式幽默鼓励；非官方内容，不使用未经授权的真人素材。", voice: true },
   quiet: { note: "只显示轻量提示，不主动朗读。", voice: false },
 };
 
