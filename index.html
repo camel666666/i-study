@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f7f4" />
+    <title>学习监督台</title>
+    <link rel="stylesheet" href="./styles.css?v=2" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">考研专注系统</p>
+        <h1>学习监督台</h1>
+      </div>
+      <div class="privacy-badge" title="摄像头画面仅在当前浏览器中处理">
+        <span class="privacy-dot"></span>
+        仅本机处理，不录制
+      </div>
+    </header>
+
+    <main>
+      <section class="session-strip" aria-label="当前学习阶段">
+        <div class="phase-copy">
+          <span id="phaseLabel" class="phase-label">准备阶段</span>
+          <strong id="activeTaskName">先安排今天的任务</strong>
+        </div>
+        <div id="timer" class="timer" aria-live="polite">50:00</div>
+        <div class="session-actions">
+          <button id="startBtn" class="primary-btn">开始监督</button>
+          <button id="pauseBtn" class="icon-btn" title="暂停" aria-label="暂停" disabled>Ⅱ</button>
+          <button id="stopBtn" class="icon-btn danger" title="结束本轮" aria-label="结束本轮" disabled>■</button>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="monitor-column">
+          <div class="camera-shell">
+            <video id="camera" playsinline muted></video>
+            <canvas id="overlay" aria-hidden="true"></canvas>
+            <div id="cameraPlaceholder" class="camera-placeholder">
+              <div class="camera-mark">◎</div>
+              <strong>摄像头尚未开启</strong>
+              <span>开始监督后，浏览器会请求摄像头权限</span>
+            </div>
+            <div id="cameraState" class="camera-state idle">
+              <span class="state-dot"></span>
+              <span id="cameraStateText">等待开始</span>
+            </div>
+            <button id="falsePositiveBtn" class="false-positive hidden">这是误判</button>
+            <button id="calibrateBtn" class="calibrate-btn hidden">以当前画面校准</button>
+          </div>
+
+          <div id="alertBand" class="alert-band calm" role="status" aria-live="assertive">
+            <div>
+              <span id="alertKicker">监督未启动</span>
+              <strong id="alertTitle">准备好后开始第一轮专注</strong>
+            </div>
+            <span id="alertCountdown"></span>
+          </div>
+
+          <div class="metrics" aria-label="本轮数据">
+            <div><span>有效专注</span><strong id="focusMetric">0 分钟</strong></div>
+            <div><span>纠偏次数</span><strong id="warningMetric">0</strong></div>
+            <div><span>补偿时间</span><strong id="penaltyMetric">0 分钟</strong></div>
+            <div><span>识别状态</span><strong id="modelMetric">待加载</strong></div>
+          </div>
+        </div>
+
+        <aside class="control-column">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="tasks" role="tab" aria-selected="true">学习任务</button>
+            <button class="tab" data-tab="settings" role="tab" aria-selected="false">监督设置</button>
+            <button class="tab" data-tab="log" role="tab" aria-selected="false">本轮记录</button>
+          </div>
+
+          <div id="tasksPanel" class="tab-panel active" role="tabpanel">
+            <div class="panel-heading">
+              <div>
+                <h2>今天做什么</h2>
+                <p>按顺序完成，当前任务会自动置顶。</p>
+              </div>
+              <button id="autoPlanBtn" class="secondary-btn">智能安排</button>
+            </div>
+            <div class="scenario-picker" aria-label="学习工作场景">
+              <span class="picker-label">场景</span>
+              <button type="button" data-scenario="exam" class="scenario-btn active">考研</button>
+              <button type="button" data-scenario="course" class="scenario-btn">课程</button>
+              <button type="button" data-scenario="project" class="scenario-btn">项目</button>
+              <button type="button" data-scenario="writing" class="scenario-btn">论文</button>
+            </div>
+            <form id="taskForm" class="task-form">
+              <input id="taskInput" type="text" maxlength="60" placeholder="添加一项具体任务" aria-label="任务名称" required />
+              <label class="minute-input">
+                <input id="taskMinutes" type="number" min="5" max="180" step="5" value="25" aria-label="预计分钟数" />
+                <span>分钟</span>
+              </label>
+              <button type="submit" class="add-btn" aria-label="添加任务" title="添加任务">＋</button>
+            </form>
+            <div id="taskList" class="task-list"></div>
+          </div>
+
+          <div id="settingsPanel" class="tab-panel" role="tabpanel" hidden>
+            <div class="panel-heading">
+              <div>
+                <h2>监督设置</h2>
+                <p>识别有误差，关键提醒可随时标记为误判。</p>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label for="focusLength">专注时长</label>
+              <div class="step-field"><input id="focusLength" type="number" min="10" max="180" step="5" value="50" /><span>分钟</span></div>
+            </div>
+            <div class="setting-row">
+              <label for="breakLength">休息时长</label>
+              <div class="step-field"><input id="breakLength" type="number" min="5" max="30" step="5" value="10" /><span>分钟</span></div>
+            </div>
+            <fieldset class="strictness-field mode-field">
+              <legend>摄像头画面模式</legend>
+              <div class="segmented mode-segmented">
+                <button type="button" data-camera-mode="computer" class="active">电脑模式</button>
+                <button type="button" data-camera-mode="desk">手部 / 桌面</button>
+              </div>
+              <p id="cameraModeNote">重点判断你是否在座，以及是否疑似拿手机。</p>
+            </fieldset>
+            <fieldset class="strictness-field">
+              <legend>提醒强度</legend>
+              <div class="segmented">
+                <button type="button" data-strictness="gentle">宽松</button>
+                <button type="button" data-strictness="standard" class="active">标准</button>
+                <button type="button" data-strictness="strict">严格</button>
+              </div>
+              <p id="strictnessNote">手机持续 5 秒或离席 30 秒后提醒。</p>
+            </fieldset>
+            <label class="toggle-row">
+              <span><strong>语音提醒</strong><small>触发纠偏时朗读提醒</small></span>
+              <input id="voiceToggle" type="checkbox" checked />
+            </label>
+            <label class="toggle-row">
+              <span><strong>显示识别框</strong><small>在画面中标出人和手机</small></span>
+              <input id="boxesToggle" type="checkbox" checked />
+            </label>
+            <fieldset class="strictness-field">
+              <legend>提醒风格</legend>
+              <div class="segmented">
+                <button type="button" data-reminder-style="coach" class="active">教练式</button>
+                <button type="button" data-reminder-style="challenge">挑战式</button>
+                <button type="button" data-reminder-style="quiet">安静式</button>
+              </div>
+              <p id="reminderStyleNote">短句提醒下一步行动，适合长时间学习。</p>
+            </fieldset>
+          </div>
+
+          <div id="logPanel" class="tab-panel" role="tabpanel" hidden>
+            <div class="panel-heading">
+              <div>
+                <h2>本轮记录</h2>
+                <p>只保存在浏览器本地，不包含照片或视频。</p>
+              </div>
+            </div>
+            <div id="eventLog" class="event-log">
+              <p class="empty-state">开始监督后，这里会显示状态变化。</p>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section class="safety-note">
+        <strong>关于“惩罚”</strong>
+        <p>本工具只采用补偿专注、重启当前小节和简短复盘等温和措施，不使用伤害身体、剥夺睡眠、羞辱或金钱处罚。摄像头只能判断“人在不在”和“是否疑似拿手机”，不能可靠判断你是否真正理解了内容。</p>
+      </section>
+    </main>
+
+    <div id="intervention" class="intervention" hidden>
+      <div class="intervention-dialog" role="alertdialog" aria-modal="true" aria-labelledby="interventionTitle">
+        <span id="interventionLevel">纠偏提醒</span>
+        <h2 id="interventionTitle">把手机放回视线外</h2>
+        <p id="interventionText">当前小节将增加 2 分钟补偿专注时间。</p>
+        <div class="intervention-actions">
+          <button id="resumeBtn" class="primary-btn">已调整，继续学习</button>
+          <button id="modalFalsePositiveBtn" class="secondary-btn">这是误判</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./app.js?v=9"></script>
+  </body>
+</html>
